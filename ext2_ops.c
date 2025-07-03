@@ -230,6 +230,25 @@ unsigned int find_inode_by_path(const char *path, unsigned int start_inode_num) 
 }
 
 
+int read_superblock(ext2_super_block *sb) {
+    uint8_t buf[1024];
+
+    // O superbloco sempre está no offset 1024 (ou bloco 1 se block_size == 1024)
+    if (read_block(1, buf) != 0) {
+        fprintf(stderr, "Erro ao ler o bloco do superbloco.\n");
+        return -1;
+    }
+
+    memcpy(sb, buf, sizeof(ext2_super_block));
+
+    if (sb->s_magic != EXT2_SUPER_MAGIC) {
+        fprintf(stderr, "Sistema de arquivos inválido. Magic: 0x%x\n", sb->s_magic);
+        return -1;
+    }
+
+    return 0;
+}
+
 int add_dir_entry(unsigned int parent_inode_num, unsigned int new_inode_num, const char *name, uint8_t file_type) {
       ext2_inode parent_inode;
     get_inode(parent_inode_num, &parent_inode);
@@ -269,6 +288,71 @@ int add_dir_entry(unsigned int parent_inode_num, unsigned int new_inode_num, con
     }
     fprintf(stderr, "Erro: Sem espaço no diretório para criar nova entrada.\n");
     return -1;
+}
+
+int read_group_desc(uint32_t group_num, ext2_group_desc *desc) {
+    if (desc == NULL) return -1;
+
+    uint32_t group_desc_table_block = (block_size == 1024) ? 2 : 1;
+    uint32_t offset = group_num * sizeof(ext2_group_desc);
+    uint32_t block_offset = offset / block_size;
+    uint32_t offset_in_block = offset % block_size;
+
+    uint8_t buf[1024];
+    if (read_block(group_desc_table_block + block_offset, buf) != 0) {
+        fprintf(stderr, "Erro ao ler descritor do grupo %u\n", group_num);
+        return -1;
+    }
+
+    memcpy(desc, buf + offset_in_block, sizeof(ext2_group_desc));
+    return 0;
+}
+
+int read_inode(uint32_t inode_num, ext2_inode *inode_out) {
+    if (inode_num == 0) return -1;
+
+    ext2_super_block sb;
+    if (read_superblock(&sb) != 0) return -1;
+
+    // Quantos inodes por grupo existem
+    uint32_t inodes_per_group = sb.s_inodes_per_group;
+    uint32_t inode_size = sb.s_inode_size;
+
+    // Qual grupo contém esse inode?
+    uint32_t group = (inode_num - 1) / inodes_per_group;
+    uint32_t index_in_group = (inode_num - 1) % inodes_per_group;
+
+    // Ler o descritor do grupo
+    ext2_group_desc gd;
+    if (read_group_desc(group, &gd) != 0) return -1;
+
+    // Bloco onde está a tabela de inodes
+    uint32_t inode_table_block = gd.bg_inode_table;
+
+    // Offset em bytes dentro da tabela de inodes
+    uint32_t offset_bytes = index_in_group * inode_size;
+
+    // Quantos inodes cabem por bloco?
+    uint32_t inodes_per_block = block_size / inode_size;
+
+    // Qual bloco dentro da tabela de inodes contém o inode?
+    uint32_t block_offset = offset_bytes / block_size;
+    uint32_t block_number = inode_table_block + block_offset;
+
+    // Offset dentro do bloco
+    uint32_t offset_in_block = offset_bytes % block_size;
+
+    // Ler o bloco onde está o inode
+    uint8_t buf[1024];
+    if (read_block(block_number, buf) != 0) {
+        fprintf(stderr, "Erro ao ler bloco do inode\n");
+        return -1;
+    }
+
+    // Copiar os bytes para a estrutura de saída
+    memcpy(inode_out, buf + offset_in_block, sizeof(ext2_inode));
+
+    return 0;
 }
 
 int remove_dir_entry(unsigned int parent_inode_num, const char *name_to_remove) {

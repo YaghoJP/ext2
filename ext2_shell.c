@@ -14,7 +14,9 @@ void do_rm(unsigned int parent_inode_num, const char *filename);
 void do_rmdir(unsigned int parent_inode_num, const char *dirname);
 void do_rename(unsigned int parent_inode_num, const char* oldname, const char* newname);
 void do_cp(unsigned int current_dir_inode, const char* source_in_image, const char* dest_on_host);
-
+void cmd_print_superblock(void);
+void cmd_print_groups(void);
+void cmd_print_inode(uint32_t inode_num);
 // Protótipos de `ext2_ops.c`
 int ext2_init(const char *image_path);
 void ext2_exit();
@@ -118,6 +120,18 @@ int main(int argc, char *argv[]) {
         else if (strcmp(cmd, "cp") == 0) {
              if (!*arg1 || !*arg2) printf("Uso: cp <origem_na_imagem> <destino_no_host>\n");
              else do_cp(current_inode, arg1, arg2);
+        }
+        else if (strcmp(cmd, "print") == 0) {
+        sscanf(line, "%*s %127s %127s", arg1, arg2);
+
+        if (strcmp(arg1, "superblock") == 0) cmd_print_superblock();
+        else if (strcmp(arg1, "groups") == 0) cmd_print_groups();
+        else if (strcmp(arg1, "inode") == 0 && *arg2) {
+            uint32_t ino = atoi(arg2);
+            cmd_print_inode(ino);
+        } else {
+            printf("Uso: print [superblock | groups | inode <número>]\n");
+        }
         }
         else if (strlen(cmd) > 0) {
             printf("Comando não encontrado: %s\n", cmd);

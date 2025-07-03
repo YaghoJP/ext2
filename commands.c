@@ -20,7 +20,8 @@ void free_inode_resource(unsigned int inode_num);
 void free_block_resource(unsigned int block_num);
 int add_dir_entry(unsigned int parent_inode_num, unsigned int new_inode_num, const char *name, uint8_t file_type);
 int remove_dir_entry(unsigned int parent_inode_num, const char *name_to_remove);
-
+int read_superblock(ext2_super_block *sb);
+int read_inode(uint32_t inode_num, ext2_inode *inode);
 // --- Comandos de Leitura ---
 
 void do_info() {
@@ -391,4 +392,124 @@ void do_cp(unsigned int current_dir_inode, const char* source_in_image, const ch
     free(block_buf);
     fclose(dest_file);
     printf("Arquivo '%s' copiado para '%s'.\n", source_in_image, dest_on_host);
+}
+
+void cmd_print_superblock() {
+    ext2_super_block sb;
+    read_superblock(&sb);
+
+    printf("inodes count: %u\n", sb.s_inodes_count);
+    printf("blocks count: %u\n", sb.s_blocks_count);
+    printf("reserved blocks count: %u\n", sb.s_r_blocks_count);
+    printf("free blocks count: %u\n", sb.s_free_blocks_count);
+    printf("free inodes count: %u\n", sb.s_free_inodes_count);
+    printf("first data block: %u\n", sb.s_first_data_block);
+    printf("block size: %u\n", 1024 << sb.s_log_block_size);
+    printf("fragment size: %u\n", 1024 << sb.s_log_frag_size);
+    printf("blocks per group: %u\n", sb.s_blocks_per_group);
+    printf("fragments per group: %u\n", sb.s_frags_per_group);
+    printf("inodes per group: %u\n", sb.s_inodes_per_group);
+    printf("mount time: %u\n", sb.s_mtime);
+    printf("write time: %u\n", sb.s_wtime);
+    printf("mount count: %u\n", sb.s_mnt_count);
+    printf("max mount count: %u\n", sb.s_max_mnt_count);
+    printf("magic signature: 0x%x\n", sb.s_magic);
+    printf("file system state: %u\n", sb.s_state);
+    printf("errors: %u\n", sb.s_errors);
+    printf("minor revision level: %u\n", sb.s_minor_rev_level);
+
+    // last check: formatado em data
+    time_t t = sb.s_lastcheck;
+    struct tm *lt = localtime(&t);
+    printf("time of last check: %02d/%02d/%04d %02d:%02d\n",
+           lt->tm_mday, lt->tm_mon + 1, lt->tm_year + 1900,
+           lt->tm_hour, lt->tm_min);
+
+    printf("max check interval: %u\n", sb.s_checkinterval);
+    printf("creator OS: %u\n", sb.s_creator_os);
+    printf("revision level: %u\n", sb.s_rev_level);
+    printf("default uid reserved blocks: %u\n", sb.s_def_resuid);
+    printf("defautl gid reserved blocks: %u\n", sb.s_def_resgid);
+    printf("first non-reserved inode: %u\n", sb.s_first_ino);
+    printf("inode size: %u\n", sb.s_inode_size);
+    printf("block group number: %u\n", sb.s_block_group_nr);
+    printf("compatible feature set: %u\n", sb.s_feature_compat);
+    printf("incompatible feature set: %u\n", sb.s_feature_incompat);
+    printf("read only comp feature set: %u\n", sb.s_feature_ro_compat);
+
+    printf("volume UUID: ");
+    for (int i = 0; i < 16; i++) printf("%02x", sb.s_uuid[i]);
+    printf("\n");
+
+    printf("volume name: %.*s\n", 16, sb.s_volume_name);
+    printf("volume last mounted: %.*s\n", 64, sb.s_last_mounted);
+    printf("algorithm usage bitmap: %u\n", sb.s_algorithm_usage_bitmap);
+    printf("blocks to try to preallocate: %u\n", sb.s_prealloc_blocks);
+    printf("blocks preallocate dir: %u\n", sb.s_prealloc_dir_blocks);
+
+    printf("journal UUID: ");
+    //for (int i = 0; i < 16; i++) printf("%02x", sb.s_journal_uuid[i]);
+    printf("\n");
+
+    printf("journal INum: %u\n", sb.s_journal_inum);
+    printf("journal Dev: %u\n", sb.s_journal_dev);
+    printf("last orphan: %u\n", sb.s_last_orphan);
+
+    printf("hash seed: ");
+    for (int i = 0; i < 4; i++) printf("%08x", sb.s_hash_seed[i]);
+    printf("\n");
+
+    printf("default hash version: %u\n", sb.s_def_hash_version);
+    printf("default mount options: %u\n", sb.s_default_mount_opts);
+    printf("first meta: %u\n", sb.s_first_meta_bg);
+}
+
+
+void cmd_print_groups() {
+    ext2_super_block sb;
+    read_superblock(&sb);
+
+    uint32_t block_size = 1024 << sb.s_log_block_size;
+    int group_count = sb.s_blocks_count / sb.s_blocks_per_group;
+
+    uint8_t buf[1024];
+    read_block(2, buf);  // Descritores começam no bloco 2 (geralmente)
+
+    for (int i = 0; i < group_count; i++) {
+        ext2_group_desc *gd = (ext2_group_desc *)(buf + i * sizeof(ext2_group_desc));
+        printf("Block Group Descriptor %d:\n", i);
+        printf("block bitmap: %u\n", gd->bg_block_bitmap);
+        printf("inode bitmap: %u\n", gd->bg_inode_bitmap);
+        printf("inode table: %u\n", gd->bg_inode_table);
+        printf("free blocks count: %u\n", gd->bg_free_blocks_count);
+        printf("free inodes count: %u\n", gd->bg_free_inodes_count);
+        printf("used dirs count: %u\n", gd->bg_used_dirs_count);
+    }
+}
+
+void cmd_print_inode(uint32_t inode_num) {
+    ext2_inode inode;
+    read_inode(inode_num, &inode);
+
+    printf("file format and access rights: 0x%x\n", inode.i_mode);
+    printf("user id: %u\n", inode.i_uid);
+    printf("lower 32-bit file size: %u\n", inode.i_size);
+    printf("access time: %u\n", inode.i_atime);
+    printf("creation time: %u\n", inode.i_ctime);
+    printf("modification time: %u\n", inode.i_mtime);
+    printf("deletion time: %u\n", inode.i_dtime);
+    printf("group id: %u\n", inode.i_gid);
+    printf("link count inode: %u\n", inode.i_links_count);
+    printf("512-bytes blocks: %u\n", inode.i_blocks);
+    printf("ext2 flags: %u\n", inode.i_flags);
+    printf("reserved (Linux): %u\n", inode.i_osd1);
+
+    for (int i = 0; i < EXT2_N_BLOCKS; i++) {
+        printf("pointer[%d]: %u\n", i, inode.i_block[i]);
+    }
+
+    printf("file version (nfs): %u\n", inode.i_generation);
+    printf("block number extended attributes: %u\n", inode.i_file_acl);
+    printf("higher 32-bit file size: %u\n", inode.i_dir_acl);
+    printf("location file fragment: %u\n", inode.i_faddr);
 }

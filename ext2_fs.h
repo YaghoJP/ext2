@@ -44,6 +44,8 @@ typedef struct {
     uint32_t s_rev_level;
     uint16_t s_def_resuid;
     uint16_t s_def_resgid;
+
+    // EXT2_DYNAMIC_REV specific
     uint32_t s_first_ino;
     uint16_t s_inode_size;
     uint16_t s_block_group_nr;
@@ -53,19 +55,29 @@ typedef struct {
     uint8_t  s_uuid[16];
     char     s_volume_name[16];
     char     s_last_mounted[64];
-    uint32_t s_algo_bitmap;
+    uint32_t s_algorithm_usage_bitmap;
+
+    // Performance Hints
     uint8_t  s_prealloc_blocks;
     uint8_t  s_prealloc_dir_blocks;
     uint16_t s_padding;
+
+    // Journaling Support
     uint8_t  s_journal_uuid[16];
     uint32_t s_journal_inum;
     uint32_t s_journal_dev;
     uint32_t s_last_orphan;
+
+    // Directory Indexing Support
     uint32_t s_hash_seed[4];
     uint8_t  s_def_hash_version;
     uint8_t  s_reserved_char_pad;
     uint16_t s_reserved_word_pad;
-    uint32_t s_reserved[188];
+
+    uint32_t s_default_mount_opts;
+    uint32_t s_first_meta_bg;
+
+    uint32_t s_reserved[190];
 } __attribute__((packed)) ext2_super_block;
 
 // --- Estrutura do Descritor de Grupo ---
