@@ -1,27 +1,5 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <time.h>
-#include "ext2_fs.h"
+#include "ext2_commands.h"
 
-// Protótipos de ext2_ops.c
-extern ext2_super_block sb;
-extern unsigned int block_size;
-int get_inode(unsigned int inode_num, ext2_inode *inode_buf);
-void write_inode(unsigned int inode_num, const ext2_inode *inode_buf);
-int read_block(unsigned int block_num, void *buffer);
-// --- LINHA ADICIONADA AQUI ---
-void write_block(unsigned int block_num, const void *buffer);
-// --- FIM DA LINHA ADICIONADA ---
-unsigned int find_inode_by_path(const char *path, unsigned int start_inode_num);
-unsigned int alloc_inode();
-unsigned int alloc_block();
-void free_inode_resource(unsigned int inode_num);
-void free_block_resource(unsigned int block_num);
-int add_dir_entry(unsigned int parent_inode_num, unsigned int new_inode_num, const char *name, uint8_t file_type);
-int remove_dir_entry(unsigned int parent_inode_num, const char *name_to_remove);
-int read_superblock(ext2_super_block *sb);
-int read_inode(uint32_t inode_num, ext2_inode *inode);
 // --- Comandos de Leitura ---
 
 void do_info() {
@@ -177,59 +155,6 @@ void do_mkdir(unsigned int parent_inode_num, const char* dirname) {
     printf("Diretório '%s' criado.\n", dirname);
 }
 
-void free_indirect_blocks(uint32_t block_ptr, int level) {
-    if (block_ptr == 0 || block_ptr < sb.s_first_data_block) {
-        return;  // Bloco inválido
-    }
-
-    uint32_t *blocks = malloc(block_size);
-    if (read_block(block_ptr, blocks) != 0) {
-        free(blocks);
-        return;  // Falha na leitura
-    }
-
-    if (level == 1) {
-        // Nível de dados
-        for (int i = 0; i < block_size/sizeof(uint32_t); i++) {
-            if (blocks[i] != 0 && blocks[i] >= sb.s_first_data_block) {
-                free_block_resource(blocks[i]);
-            }
-        }
-    } else {
-        // Níveis de ponteiros
-        for (int i = 0; i < block_size/sizeof(uint32_t); i++) {
-            if (blocks[i] != 0 && blocks[i] >= sb.s_first_data_block) {
-                free_indirect_blocks(blocks[i], level - 1);
-            }
-        }
-    }
-
-    free_block_resource(block_ptr);  // Libera o bloco atual
-    free(blocks);
-}
-
-void free_all_blocks(ext2_inode *inode) {
-    // 1. Libera blocos diretos (0-11)
-    for (int i = 0; i < 12 && inode->i_block[i] != 0; i++) {
-        free_block_resource(inode->i_block[i]);
-    }
-
-    // 2. Libera indireto simples (bloco 12) - nível 1
-    if (inode->i_block[12] != 0) {
-        free_indirect_blocks(inode->i_block[12], 1);
-    }
-
-    // 3. Libera indireto duplo (bloco 13) - nível 2
-    if (inode->i_block[13] != 0) {
-        free_indirect_blocks(inode->i_block[13], 2);
-    }
-
-    // 4. Para sistemas muito grandes: indireto triplo (bloco 14) - nível 3
-    // if (inode->i_block[14] != 0) {
-    //     free_indirect_blocks(inode->i_block[14], 3);
-    // }
-}
-
 void do_rm(unsigned int parent_inode_num, const char *filename) {
     unsigned int target_inode_num = find_inode_by_path(filename, parent_inode_num);
     if (target_inode_num == 0) {
@@ -311,14 +236,6 @@ void do_rename(unsigned int parent_inode_num, const char* oldname, const char* n
     printf("'%s' renomeado para '%s'.\n", oldname, newname);
 }
 
-void copy_block_to_file(uint32_t block_num, FILE *dest_file, unsigned int *bytes_remaining, char *block_buf) {
-    if (*bytes_remaining == 0) return;
-    read_block(block_num, block_buf);
-    unsigned int bytes_to_write = (*bytes_remaining < block_size) ? *bytes_remaining : block_size;
-    fwrite(block_buf, 1, bytes_to_write, dest_file);
-    *bytes_remaining -= bytes_to_write;
-}
-
 void do_cp(unsigned int current_dir_inode, const char* source_in_image, const char* dest_on_host) {
     unsigned int source_inode_num = find_inode_by_path(source_in_image, current_dir_inode);
     if (source_inode_num == 0) {
@@ -343,14 +260,14 @@ void do_cp(unsigned int current_dir_inode, const char* source_in_image, const ch
     char *block_buf = malloc(block_size);
     unsigned int bytes_remaining = source_inode.i_size;
 
-    // 🔹 1. Diretos
+    //Diretos
     for (int i = 0; i < 12 && bytes_remaining > 0; i++) {
         if (source_inode.i_block[i] != 0) {
             copy_block_to_file(source_inode.i_block[i], dest_file, &bytes_remaining, block_buf);
         }
     }
 
-    // 🔹 2. Indireto
+    //Indireto
     if (bytes_remaining > 0 && source_inode.i_block[12] != 0) {
         uint32_t *indirect_blocks = malloc(block_size);
         read_block(source_inode.i_block[12], (char*)indirect_blocks);
@@ -365,7 +282,7 @@ void do_cp(unsigned int current_dir_inode, const char* source_in_image, const ch
         free(indirect_blocks);
     }
 
-    // 🔹 3. Duplamente indireto
+    //Duplamente indireto
     if (bytes_remaining > 0 && source_inode.i_block[13] != 0) {
         uint32_t *double_indirect = malloc(block_size);
         read_block(source_inode.i_block[13], (char*)double_indirect);
@@ -463,7 +380,6 @@ void cmd_print_superblock() {
     printf("default mount options: %u\n", sb.s_default_mount_opts);
     printf("first meta: %u\n", sb.s_first_meta_bg);
 }
-
 
 void cmd_print_groups() {
     ext2_super_block sb;

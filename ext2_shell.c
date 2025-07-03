@@ -2,26 +2,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include "ext2_fs.h"
-
-// Protótipos de `commands.c`
-void do_info();
-void do_attr(unsigned int inode_num);
-void do_ls(unsigned int dir_inode_num);
-void do_cat(unsigned int file_inode_num);
-void do_touch(unsigned int parent_inode_num, const char* filename);
-void do_mkdir(unsigned int parent_inode_num, const char* dirname);
-void do_rm(unsigned int parent_inode_num, const char *filename);
-void do_rmdir(unsigned int parent_inode_num, const char *dirname);
-void do_rename(unsigned int parent_inode_num, const char* oldname, const char* newname);
-void do_cp(unsigned int current_dir_inode, const char* source_in_image, const char* dest_on_host);
-void cmd_print_superblock(void);
-void cmd_print_groups(void);
-void cmd_print_inode(uint32_t inode_num);
-// Protótipos de `ext2_ops.c`
-int ext2_init(const char *image_path);
-void ext2_exit();
-unsigned int find_inode_by_path(const char *path, unsigned int start_inode_num);
-int get_inode(unsigned int inode_num,  ext2_inode *inode_buf);
+#include "ext2_lib.h"
+#include "ext2_commands.h"
 
 // Estado do Shell
 static unsigned int current_inode = EXT2_ROOT_INO;
