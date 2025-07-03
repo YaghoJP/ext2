@@ -5,10 +5,10 @@
 #include "ext2_fs.h"
 
 // Protótipos de ext2_ops.c
-extern struct ext2_super_block sb;
+extern ext2_super_block sb;
 extern unsigned int block_size;
-int get_inode(unsigned int inode_num, struct ext2_inode *inode_buf);
-void write_inode(unsigned int inode_num, const struct ext2_inode *inode_buf);
+int get_inode(unsigned int inode_num, ext2_inode *inode_buf);
+void write_inode(unsigned int inode_num, const ext2_inode *inode_buf);
 int read_block(unsigned int block_num, void *buffer);
 // --- LINHA ADICIONADA AQUI ---
 void write_block(unsigned int block_num, const void *buffer);
@@ -24,17 +24,22 @@ int remove_dir_entry(unsigned int parent_inode_num, const char *name_to_remove);
 // --- Comandos de Leitura ---
 
 void do_info() {
-    printf("--- Informações do Superbloco ---\n");
-    printf("Total de inodes: %u\n", sb.s_inodes_count);
-    printf("Total de blocos: %u\n", sb.s_blocks_count);
-    printf("Inodes livres: %u\n", sb.s_free_inodes_count);
-    printf("Blocos livres: %u\n", sb.s_free_blocks_count);
-    printf("Tamanho do bloco: %u bytes\n", block_size);
-    printf("Última escrita: %s", ctime((time_t*)&sb.s_wtime));
+
+    printf("\nVolume name.....: %s\n", sb.s_volume_name);
+    printf("Image size......: %lu bytes\n", block_size * sb.s_blocks_count * 1UL);
+    printf("Free space......: %u KiB\n", sb.s_free_blocks_count * block_size / 1024);
+    printf("Free inodes.....: %u\n", sb.s_free_inodes_count);
+    printf("Free blocks.....: %u\n", sb.s_free_blocks_count);
+    printf("Block size......: %u bytes\n", block_size);
+    printf("Inode size......: %lu bytes\n", sizeof(ext2_inode));
+    printf("Groups count....: %u\n", sb.s_blocks_count / sb.s_blocks_per_group);
+    printf("Groups size.....: %u blocks\n", sb.s_blocks_per_group);
+    printf("Groups inodes...: %u inodes\n", sb.s_inodes_per_group);
+    printf("Inodetable size.: %lu blocks\n\n", (sb.s_inodes_per_group * sizeof(ext2_inode)) / block_size);
 }
 
 void do_attr(unsigned int inode_num) {
-    struct ext2_inode inode;
+    ext2_inode inode;
     if (get_inode(inode_num, &inode) != 0) {
         printf("Erro: Não foi possível obter o inode %u.\n", inode_num);
         return;
@@ -48,11 +53,16 @@ void do_attr(unsigned int inode_num) {
     printf("Tamanho: %u bytes\n", inode.i_size);
     printf("Contagem de links: %u\n", inode.i_links_count);
     printf("Blocos alocados: %u\n", inode.i_blocks / (block_size / 512));
-    printf("Data de criação: %s", ctime((time_t*)&inode.i_ctime));
+    time_t mtime = inode.i_ctime;
+    struct tm *tm_info = localtime(&mtime);
+    char date_buf[64];
+    strftime(date_buf, sizeof(date_buf), "%d/%m/%Y %H:%M", tm_info);
+    printf("%s\n", date_buf);
+    printf("Data de criação: %s", date_buf);
 }
 
 void do_ls(unsigned int dir_inode_num) {
-    struct ext2_inode dir_inode;
+    ext2_inode dir_inode;
     get_inode(dir_inode_num, &dir_inode);
     if (!(dir_inode.i_mode & EXT2_S_IFDIR)) {
         printf("ls: não é um diretório\n");
@@ -61,25 +71,28 @@ void do_ls(unsigned int dir_inode_num) {
     char block_buf[block_size];
     for (int i = 0; i < 12 && dir_inode.i_block[i] != 0; ++i) {
         read_block(dir_inode.i_block[i], block_buf);
-        struct ext2_dir_entry_2 *entry = (struct ext2_dir_entry_2 *)block_buf;
+          ext2_dir_entry_2 *entry = (  ext2_dir_entry_2 *)block_buf;
         unsigned int offset = 0;
         while (offset < block_size && entry->rec_len > 0) {
             if (entry->inode != 0) {
                 char name[entry->name_len + 1];
                 memcpy(name, entry->name, entry->name_len);
                 name[entry->name_len] = '\0';
-                if (entry->file_type == EXT2_FT_DIR) printf("%s/  ", name);
-                else printf("%s   ", name);
+                printf("%s\n", name);
+                printf("inode: %u\n", entry->inode);
+                printf("record length: %u\n", entry->rec_len);
+                printf("name length: %u\n", entry->name_len);
+                printf("file type: %u\n\n", entry->file_type);
             }
             offset += entry->rec_len;
-            entry = (struct ext2_dir_entry_2 *)((char *)block_buf + offset);
+            entry = (  ext2_dir_entry_2 *)((char *)block_buf + offset);
         }
     }
     printf("\n");
 }
 
 void do_cat(unsigned int file_inode_num) {
-    struct ext2_inode file_inode;
+      ext2_inode file_inode;
     get_inode(file_inode_num, &file_inode);
     if (!(file_inode.i_mode & EXT2_S_IFREG)) {
         printf("cat: não é um arquivo regular\n");
@@ -109,7 +122,7 @@ void do_touch(unsigned int parent_inode_num, const char* filename) {
         fprintf(stderr, "touch: falha ao alocar inode\n");
         return;
     }
-    struct ext2_inode new_inode = {0};
+      ext2_inode new_inode = {0};
     new_inode.i_mode = EXT2_S_IFREG | 0644;
     new_inode.i_links_count = 1;
     new_inode.i_ctime = time(NULL);
@@ -136,7 +149,7 @@ void do_mkdir(unsigned int parent_inode_num, const char* dirname) {
         return;
     }
 
-    struct ext2_inode new_dir_inode = {0};
+      ext2_inode new_dir_inode = {0};
     new_dir_inode.i_mode = EXT2_S_IFDIR | 0755;
     new_dir_inode.i_size = block_size;
     new_dir_inode.i_links_count = 2;
@@ -147,15 +160,15 @@ void do_mkdir(unsigned int parent_inode_num, const char* dirname) {
 
     char block_buf[block_size];
     memset(block_buf, 0, block_size);
-    struct ext2_dir_entry_2 *self_entry = (struct ext2_dir_entry_2*)block_buf;
+      ext2_dir_entry_2 *self_entry = (  ext2_dir_entry_2*)block_buf;
     self_entry->inode = new_inode_num; self_entry->rec_len = 12; self_entry->name_len = 1; self_entry->file_type = EXT2_FT_DIR; strcpy(self_entry->name, ".");
-    struct ext2_dir_entry_2 *parent_entry = (struct ext2_dir_entry_2*)(block_buf + 12);
+      ext2_dir_entry_2 *parent_entry = (  ext2_dir_entry_2*)(block_buf + 12);
     parent_entry->inode = parent_inode_num; parent_entry->rec_len = block_size - 12; parent_entry->name_len = 2; parent_entry->file_type = EXT2_FT_DIR; strcpy(parent_entry->name, "..");
     write_block(new_block_num, block_buf);
 
     if (add_dir_entry(parent_inode_num, new_inode_num, dirname, EXT2_FT_DIR) != 0) return;
     
-    struct ext2_inode parent_inode;
+      ext2_inode parent_inode;
     get_inode(parent_inode_num, &parent_inode);
     parent_inode.i_links_count++;
     write_inode(parent_inode_num, &parent_inode);
@@ -169,7 +182,7 @@ void do_rm(unsigned int parent_inode_num, const char *filename) {
         fprintf(stderr, "rm: arquivo '%s' não encontrado\n", filename);
         return;
     }
-    struct ext2_inode target_inode;
+      ext2_inode target_inode;
     get_inode(target_inode_num, &target_inode);
     if(target_inode.i_mode & EXT2_S_IFDIR) {
         fprintf(stderr, "rm: '%s' é um diretório. Use rmdir.\n", filename);
@@ -197,7 +210,7 @@ void do_rmdir(unsigned int parent_inode_num, const char *dirname) {
         fprintf(stderr, "rmdir: diretório '%s' não encontrado\n", dirname);
         return;
     }
-    struct ext2_inode target_inode;
+      ext2_inode target_inode;
     get_inode(target_inode_num, &target_inode);
     if(!(target_inode.i_mode & EXT2_S_IFDIR)) {
         fprintf(stderr, "rmdir: '%s' não é um diretório.\n", dirname);
@@ -213,7 +226,7 @@ void do_rmdir(unsigned int parent_inode_num, const char *dirname) {
     free_block_resource(target_inode.i_block[0]);
     free_inode_resource(target_inode_num);
 
-    struct ext2_inode parent_inode;
+      ext2_inode parent_inode;
     get_inode(parent_inode_num, &parent_inode);
     parent_inode.i_links_count--;
     write_inode(parent_inode_num, &parent_inode);
@@ -231,7 +244,7 @@ void do_rename(unsigned int parent_inode_num, const char* oldname, const char* n
         fprintf(stderr, "rename: '%s' já existe.\n", newname);
         return;
     }
-    struct ext2_inode target_inode;
+      ext2_inode target_inode;
     get_inode(target_inode_num, &target_inode);
     uint8_t ftype = (target_inode.i_mode & EXT2_S_IFDIR) ? EXT2_FT_DIR : EXT2_FT_REG_FILE;
 
@@ -256,7 +269,7 @@ void do_cp(unsigned int current_dir_inode, const char* source_in_image, const ch
         return;
     }
 
-    struct ext2_inode source_inode;
+      ext2_inode source_inode;
     get_inode(source_inode_num, &source_inode);
 
     if (!(source_inode.i_mode & EXT2_S_IFREG)) {

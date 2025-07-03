@@ -19,7 +19,7 @@ void do_cp(unsigned int current_dir_inode, const char* source_in_image, const ch
 int ext2_init(const char *image_path);
 void ext2_exit();
 unsigned int find_inode_by_path(const char *path, unsigned int start_inode_num);
-int get_inode(unsigned int inode_num, struct ext2_inode *inode_buf);
+int get_inode(unsigned int inode_num,  ext2_inode *inode_buf);
 
 // Estado do Shell
 static unsigned int current_inode = EXT2_ROOT_INO;
@@ -86,7 +86,7 @@ int main(int argc, char *argv[]) {
             else {
                 unsigned int ino = find_inode_by_path(arg1, current_inode);
                 if (ino) {
-                    struct ext2_inode new_dir_inode;
+                      ext2_inode new_dir_inode;
                     get_inode(ino, &new_dir_inode);
                     if (new_dir_inode.i_mode & EXT2_S_IFDIR) {
                         current_inode = ino;
