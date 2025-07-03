@@ -176,31 +176,87 @@ void do_mkdir(unsigned int parent_inode_num, const char* dirname) {
     printf("Diretório '%s' criado.\n", dirname);
 }
 
+void free_indirect_blocks(uint32_t block_ptr, int level) {
+    if (block_ptr == 0 || block_ptr < sb.s_first_data_block) {
+        return;  // Bloco inválido
+    }
+
+    uint32_t *blocks = malloc(block_size);
+    if (read_block(block_ptr, blocks) != 0) {
+        free(blocks);
+        return;  // Falha na leitura
+    }
+
+    if (level == 1) {
+        // Nível de dados
+        for (int i = 0; i < block_size/sizeof(uint32_t); i++) {
+            if (blocks[i] != 0 && blocks[i] >= sb.s_first_data_block) {
+                free_block_resource(blocks[i]);
+            }
+        }
+    } else {
+        // Níveis de ponteiros
+        for (int i = 0; i < block_size/sizeof(uint32_t); i++) {
+            if (blocks[i] != 0 && blocks[i] >= sb.s_first_data_block) {
+                free_indirect_blocks(blocks[i], level - 1);
+            }
+        }
+    }
+
+    free_block_resource(block_ptr);  // Libera o bloco atual
+    free(blocks);
+}
+
+void free_all_blocks(ext2_inode *inode) {
+    // 1. Libera blocos diretos (0-11)
+    for (int i = 0; i < 12 && inode->i_block[i] != 0; i++) {
+        free_block_resource(inode->i_block[i]);
+    }
+
+    // 2. Libera indireto simples (bloco 12) - nível 1
+    if (inode->i_block[12] != 0) {
+        free_indirect_blocks(inode->i_block[12], 1);
+    }
+
+    // 3. Libera indireto duplo (bloco 13) - nível 2
+    if (inode->i_block[13] != 0) {
+        free_indirect_blocks(inode->i_block[13], 2);
+    }
+
+    // 4. Para sistemas muito grandes: indireto triplo (bloco 14) - nível 3
+    // if (inode->i_block[14] != 0) {
+    //     free_indirect_blocks(inode->i_block[14], 3);
+    // }
+}
+
 void do_rm(unsigned int parent_inode_num, const char *filename) {
     unsigned int target_inode_num = find_inode_by_path(filename, parent_inode_num);
     if (target_inode_num == 0) {
         fprintf(stderr, "rm: arquivo '%s' não encontrado\n", filename);
         return;
     }
-      ext2_inode target_inode;
+
+    ext2_inode target_inode;
     get_inode(target_inode_num, &target_inode);
-    if(target_inode.i_mode & EXT2_S_IFDIR) {
+
+    if (target_inode.i_mode & EXT2_S_IFDIR) {
         fprintf(stderr, "rm: '%s' é um diretório. Use rmdir.\n", filename);
         return;
     }
+
     if (remove_dir_entry(parent_inode_num, filename) != 0) {
         fprintf(stderr, "rm: falha ao remover entrada de diretório\n");
         return;
     }
+
     target_inode.i_links_count--;
     if (target_inode.i_links_count == 0) {
-        for(int i = 0; i < 12 && target_inode.i_block[i] != 0; i++) {
-            free_block_resource(target_inode.i_block[i]);
-        }
+        free_all_blocks(&target_inode);
         free_inode_resource(target_inode_num);
     } else {
         write_inode(target_inode_num, &target_inode);
     }
+
     printf("Arquivo '%s' removido.\n", filename);
 }
 
