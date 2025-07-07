@@ -55,7 +55,7 @@ int main(int argc, char *argv[]) {
     char cmd[32], arg1[128], arg2[128];
 
     while (1) {
-        printf("[%s] $ ", current_path);
+        printf("ext2shell:[%s] $ ", current_path);
         fflush(stdout);
 
         if (fgets(line, sizeof(line), stdin) == NULL) break;
