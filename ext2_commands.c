@@ -145,6 +145,42 @@ void do_cat(unsigned int file_inode_num) {
         free(indirect_block);
     }
 
+    if (bytes_remaining > 0 && file_inode.i_block[13] != 0) {
+        uint32_t *double_indirect = malloc(block_size);
+        if (!double_indirect) {
+            free(block_buf);
+            printf("Erro: Falha ao alocar memória para bloco duplamente indireto\n");
+            return;
+        }
+
+        read_block(file_inode.i_block[13], (char *)double_indirect);
+        int entries_per_block = block_size / sizeof(uint32_t);
+
+        for (int i = 0; i < entries_per_block && bytes_remaining > 0; i++) {
+            if (double_indirect[i] == 0) continue;
+
+            uint32_t *indirect = malloc(block_size);
+            if (!indirect) {
+                free(double_indirect);
+                free(block_buf);
+                printf("Erro: Falha ao alocar memória para nível 2\n");
+                return;
+            }
+
+            read_block(double_indirect[i], (char *)indirect);
+            for (int j = 0; j < entries_per_block && bytes_remaining > 0; j++) {
+                if (indirect[j] == 0) continue;
+
+                read_block(indirect[j], block_buf);
+                unsigned int bytes_to_write = (bytes_remaining > block_size) ? block_size : bytes_remaining;
+                fwrite(block_buf, 1, bytes_to_write, stdout);
+                bytes_remaining -= bytes_to_write;
+            }
+            free(indirect);
+        }
+
+        free(double_indirect);
+    }
 
     free(block_buf);
     printf("\n"); // Adiciona nova linha no final
