@@ -328,7 +328,7 @@ int read_inode(uint32_t inode_num, ext2_inode *inode_out) {
     uint32_t offset_bytes = index_in_group * inode_size;
 
     // Quantos inodes cabem por bloco?
-    uint32_t inodes_per_block = block_size / inode_size;
+    //uint32_t inodes_per_block = block_size / inode_size;
 
     // Qual bloco dentro da tabela de inodes contém o inode?
     uint32_t block_offset = offset_bytes / block_size;

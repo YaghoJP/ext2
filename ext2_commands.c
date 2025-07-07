@@ -40,16 +40,12 @@ void do_attr(unsigned int inode_num) {
 
     // Formatar tamanho (sempre em KiB para diretórios)
     char size_str[32];
-    if (inode.i_mode & EXT2_S_IFDIR) {
-        snprintf(size_str, sizeof(size_str), "1.0 KiB"); // Tamanho fixo para diretórios
+    if (inode.i_size < 1024) {
+        snprintf(size_str, sizeof(size_str), "%u bytes", inode.i_size);
+    } else if (inode.i_size < 1024 * 1024) {
+        snprintf(size_str, sizeof(size_str), "%.1f KiB", inode.i_size / 1024.0);
     } else {
-        if (inode.i_size < 1024) {
-            snprintf(size_str, sizeof(size_str), "%u bytes", inode.i_size);
-        } else if (inode.i_size < 1024 * 1024) {
-            snprintf(size_str, sizeof(size_str), "%.1f KiB", inode.i_size / 1024.0);
-        } else {
-            snprintf(size_str, sizeof(size_str), "%.1f MiB", inode.i_size / (1024.0 * 1024.0));
-        }
+        snprintf(size_str, sizeof(size_str), "%.1f MiB", inode.i_size / (1024.0 * 1024.0));
     }
 
     // Formatar data (corrigindo fuso horário)
@@ -79,7 +75,7 @@ void do_ls(unsigned int dir_inode_num) {
     char block_buf[block_size];
     for (int i = 0; i < 12 && dir_inode.i_block[i] != 0; ++i) {
         read_block(dir_inode.i_block[i], block_buf);
-          ext2_dir_entry_2 *entry = (  ext2_dir_entry_2 *)block_buf;
+        ext2_dir_entry_2 *entry = (  ext2_dir_entry_2 *)block_buf;
         unsigned int offset = 0;
         while (offset < block_size && entry->rec_len > 0) {
             if (entry->inode != 0) {
@@ -479,7 +475,7 @@ void cmd_print_groups() {
     ext2_super_block sb;
     read_superblock(&sb);
 
-    uint32_t block_size = 1024 << sb.s_log_block_size;
+    //uint32_t block_size = 1024 << sb.s_log_block_size;
     int group_count = sb.s_blocks_count / sb.s_blocks_per_group;
 
     uint8_t buf[1024];
