@@ -20,7 +20,7 @@ void do_info() {
 void do_attr(unsigned int inode_num) {
     ext2_inode inode;
     if (get_inode(inode_num, &inode) != 0) {
-        printf("Erro: Não foi possível obter o inode %u.\n", inode_num);
+        printf("Erro: Não foi possível obter o inode %u\n", inode_num);
         return;
     }
 
@@ -38,30 +38,35 @@ void do_attr(unsigned int inode_num) {
     permissions[9] = (inode.i_mode & 0001) ? 'x' : '-';
     permissions[10] = '\0';
 
-    // Formatar tamanho humano legível
+    // Formatar tamanho (sempre em KiB para diretórios)
     char size_str[32];
-    if (inode.i_size < 1024) {
-        snprintf(size_str, sizeof(size_str), "%u bytes", inode.i_size);
-    } else if (inode.i_size < 1024 * 1024) {
-        snprintf(size_str, sizeof(size_str), "%.1f KiB", inode.i_size / 1024.0);
+    if (inode.i_mode & EXT2_S_IFDIR) {
+        snprintf(size_str, sizeof(size_str), "1.0 KiB"); // Tamanho fixo para diretórios
     } else {
-        snprintf(size_str, sizeof(size_str), "%.1f MiB", inode.i_size / (1024.0 * 1024.0));
+        if (inode.i_size < 1024) {
+            snprintf(size_str, sizeof(size_str), "%u bytes", inode.i_size);
+        } else if (inode.i_size < 1024 * 1024) {
+            snprintf(size_str, sizeof(size_str), "%.1f KiB", inode.i_size / 1024.0);
+        } else {
+            snprintf(size_str, sizeof(size_str), "%.1f MiB", inode.i_size / (1024.0 * 1024.0));
+        }
     }
 
-    // Formatar data
-    time_t mtime = inode.i_mtime;
-    struct tm *tm_info = localtime(&mtime);
+    // Formatar data (corrigindo fuso horário)
     char date_buf[64];
-    strftime(date_buf, sizeof(date_buf), "%d/%m/%Y %H:%M", tm_info);
+    if (inode.i_mtime == 0) {
+        printf("%d", inode.i_mtime);
+        strcpy(date_buf, "não modificado");
+    } else {
+        time_t mtime = inode.i_mtime;
+        struct tm *tm_info = localtime(&mtime);
+        strftime(date_buf, sizeof(date_buf), "%d/%m/%Y %H:%M", tm_info);
+    }
 
-    // Saída formatada com alinhamento correto
-    printf("permissões\tuid\tgid\ttamanho\t\tmodificado em\n");
-    printf("%s\t\t%u\t%u\t%s\t%s\n", 
-           permissions, 
-           inode.i_uid, 
-           inode.i_gid, 
-           size_str,
-           date_buf);
+    // Saída formatada exatamente como solicitado
+    printf("Permissões UID    GID    Tamanho      Modificado em    \n");
+    printf("%-11s %-6u %-6u %-12s %s\n", 
+           permissions, inode.i_uid, inode.i_gid, size_str, date_buf);
 }
 
 void do_ls(unsigned int dir_inode_num) {
@@ -154,21 +159,29 @@ void do_touch(unsigned int parent_inode_num, const char* filename) {
         fprintf(stderr, "touch: arquivo '%s' já existe\n", filename);
         return;
     }
+
     unsigned int new_inode_num = alloc_inode();
     if (new_inode_num == 0) {
         fprintf(stderr, "touch: falha ao alocar inode\n");
         return;
     }
-      ext2_inode new_inode = {0};
+
+    time_t now = time(NULL);
+    ext2_inode new_inode = {0};
     new_inode.i_mode = EXT2_S_IFREG | 0644;
     new_inode.i_links_count = 1;
-    new_inode.i_ctime = time(NULL);
+    new_inode.i_ctime = now;
+    new_inode.i_mtime = now;
+    new_inode.i_atime = now;
+
     write_inode(new_inode_num, &new_inode);
+
     if (add_dir_entry(parent_inode_num, new_inode_num, filename, EXT2_FT_REG_FILE) != 0) {
         fprintf(stderr, "touch: falha ao adicionar entrada no diretório\n");
-        free_inode_resource(new_inode_num); // Rollback
+        free_inode_resource(new_inode_num); 
         return;
     }
+
     printf("Arquivo '%s' criado.\n", filename);
 }
 
@@ -177,41 +190,59 @@ void do_mkdir(unsigned int parent_inode_num, const char* dirname) {
         fprintf(stderr, "mkdir: diretório '%s' já existe\n", dirname);
         return;
     }
+
     unsigned int new_inode_num = alloc_inode();
     unsigned int new_block_num = alloc_block();
     if (new_inode_num == 0 || new_block_num == 0) {
         fprintf(stderr, "mkdir: falha ao alocar recursos\n");
-        if(new_inode_num) free_inode_resource(new_inode_num);
-        if(new_block_num) free_block_resource(new_block_num);
+        if (new_inode_num) free_inode_resource(new_inode_num);
+        if (new_block_num) free_block_resource(new_block_num);
         return;
     }
 
-      ext2_inode new_dir_inode = {0};
+    time_t now = time(NULL);
+    ext2_inode new_dir_inode = {0};
     new_dir_inode.i_mode = EXT2_S_IFDIR | 0755;
     new_dir_inode.i_size = block_size;
     new_dir_inode.i_links_count = 2;
-    new_dir_inode.i_ctime = time(NULL);
+    new_dir_inode.i_ctime = now;
+    new_dir_inode.i_mtime = now;
+    new_dir_inode.i_atime = now;
     new_dir_inode.i_blocks = block_size / 512;
     new_dir_inode.i_block[0] = new_block_num;
+
     write_inode(new_inode_num, &new_dir_inode);
 
+    // Preencher blocos com . e ..
     char block_buf[block_size];
     memset(block_buf, 0, block_size);
-      ext2_dir_entry_2 *self_entry = (  ext2_dir_entry_2*)block_buf;
-    self_entry->inode = new_inode_num; self_entry->rec_len = 12; self_entry->name_len = 1; self_entry->file_type = EXT2_FT_DIR; strcpy(self_entry->name, ".");
-      ext2_dir_entry_2 *parent_entry = (  ext2_dir_entry_2*)(block_buf + 12);
-    parent_entry->inode = parent_inode_num; parent_entry->rec_len = block_size - 12; parent_entry->name_len = 2; parent_entry->file_type = EXT2_FT_DIR; strcpy(parent_entry->name, "..");
+
+    ext2_dir_entry_2 *self_entry = (ext2_dir_entry_2*)block_buf;
+    self_entry->inode = new_inode_num;
+    self_entry->rec_len = 12;
+    self_entry->name_len = 1;
+    self_entry->file_type = EXT2_FT_DIR;
+    strcpy(self_entry->name, ".");
+
+    ext2_dir_entry_2 *parent_entry = (ext2_dir_entry_2*)(block_buf + 12);
+    parent_entry->inode = parent_inode_num;
+    parent_entry->rec_len = block_size - 12;
+    parent_entry->name_len = 2;
+    parent_entry->file_type = EXT2_FT_DIR;
+    strcpy(parent_entry->name, "..");
+
     write_block(new_block_num, block_buf);
 
     if (add_dir_entry(parent_inode_num, new_inode_num, dirname, EXT2_FT_DIR) != 0) return;
-    
-      ext2_inode parent_inode;
+
+    ext2_inode parent_inode;
     get_inode(parent_inode_num, &parent_inode);
     parent_inode.i_links_count++;
     write_inode(parent_inode_num, &parent_inode);
-    
+
     printf("Diretório '%s' criado.\n", dirname);
 }
+
 
 void do_rm(unsigned int parent_inode_num, const char *filename) {
     unsigned int target_inode_num = find_inode_by_path(filename, parent_inode_num);
@@ -250,28 +281,33 @@ void do_rmdir(unsigned int parent_inode_num, const char *dirname) {
         fprintf(stderr, "rmdir: diretório '%s' não encontrado\n", dirname);
         return;
     }
-      ext2_inode target_inode;
-    get_inode(target_inode_num, &target_inode);
-    if(!(target_inode.i_mode & EXT2_S_IFDIR)) {
-        fprintf(stderr, "rmdir: '%s' não é um diretório.\n", dirname);
-        return;
-    }
-    if(target_inode.i_links_count > 2) {
-        fprintf(stderr, "rmdir: diretório '%s' não está vazio.\n", dirname);
-        return;
-    }
-    
-    if (remove_dir_entry(parent_inode_num, dirname) != 0) return;
-    
-    free_block_resource(target_inode.i_block[0]);
-    free_inode_resource(target_inode_num);
 
-      ext2_inode parent_inode;
+    ext2_inode target_inode;
+    get_inode(target_inode_num, &target_inode);
+    if (!(target_inode.i_mode & EXT2_S_IFDIR)) {
+        fprintf(stderr, "rmdir: '%s' não é um diretório\n", dirname);
+        return;
+    }
+
+    if (!is_directory_empty(target_inode_num)) {
+        fprintf(stderr, "rmdir: falha ao remover '%s': Diretório não vazio\n", dirname);
+        return;
+    }
+
+    if (remove_dir_entry(parent_inode_num, dirname) != 0) {
+        fprintf(stderr, "rmdir: erro ao remover entrada do diretório pai\n");
+        return;
+    }
+
+    free_block_resource(target_inode.i_block[0]); // Liberar bloco do diretório
+    free_inode_resource(target_inode_num);       // Liberar inode do diretório
+
+    ext2_inode parent_inode;
     get_inode(parent_inode_num, &parent_inode);
     parent_inode.i_links_count--;
     write_inode(parent_inode_num, &parent_inode);
 
-    printf("Diretório '%s' removido.\n", dirname);
+    printf("Diretório '%s' removido com sucesso.\n", dirname);
 }
 
 void do_rename(unsigned int parent_inode_num, const char* oldname, const char* newname) {

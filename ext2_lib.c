@@ -435,3 +435,33 @@ void free_all_blocks(ext2_inode *inode) {
     }
 
 }
+
+bool is_directory_empty(unsigned int dir_inode_num) {
+    ext2_inode dir_inode;
+    get_inode(dir_inode_num, &dir_inode);
+
+    char block[block_size];
+    read_block(dir_inode.i_block[0], block);
+
+    int entry_count = 0;
+    unsigned int offset = 0;
+
+    while (offset < block_size) {
+        ext2_dir_entry_2 *entry = (ext2_dir_entry_2 *)(block + offset);
+        
+        // Fim das entradas válidas
+        if (entry->inode == 0) {
+            break;
+        }
+
+        // Ignorar as entradas "." e ".."
+        if (strncmp(entry->name, ".", entry->name_len) != 0 && 
+            strncmp(entry->name, "..", entry->name_len) != 0) {
+            entry_count++;
+        }
+
+        offset += entry->rec_len;
+    }
+
+    return (entry_count == 0);
+}

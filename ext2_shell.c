@@ -10,18 +10,36 @@ static unsigned int current_inode = EXT2_ROOT_INO;
 static char current_path[1024] = "/";
 
 // Função para atualizar o string do caminho (simplificada)
-void update_path(const char *new_dir_name) {
-    if (strcmp(new_dir_name, ".") == 0) return;
-    if (strcmp(new_dir_name, "..") == 0) {
+void update_path(const char *new_dir) {
+    if (strcmp(new_dir, "/") == 0 && strcmp(current_path, "/") == 0) {
+        return; // Não faz nada
+    }
+    
+    if (strcmp(new_dir, "/") == 0) {
+        strcpy(current_path, "/");
+        return;
+    }
+    if (strcmp(new_dir, "..") == 0) {
+        // Lógica para subir um diretório
         if (strcmp(current_path, "/") != 0) {
             char *last_slash = strrchr(current_path, '/');
-            if (last_slash == current_path) *(last_slash + 1) = '\0';
-            else *last_slash = '\0';
+            if (last_slash == current_path) {
+                current_path[1] = '\0';
+            } else {
+                *last_slash = '\0';
+            }
         }
-    } else {
-        if (strcmp(current_path, "/") != 0) strcat(current_path, "/");
-        strcat(current_path, new_dir_name);
+        return;
     }
+
+    if (strcmp(new_dir, ".") == 0) {
+        return;
+    }
+
+    if (strcmp(current_path, "/") != 0) {
+        strcat(current_path, "/");
+    }
+    strcat(current_path, new_dir);
 }
 
 
@@ -65,20 +83,34 @@ int main(int argc, char *argv[]) {
                 else printf("cat: '%s' não encontrado.\n", arg1);
             }
         }
+
         else if (strcmp(cmd, "cd") == 0) {
-            if (!*arg1) { current_inode = EXT2_ROOT_INO; strcpy(current_path, "/"); }
+            if (!*arg1) { 
+                // cd sem argumentos - vai para raiz
+                current_inode = EXT2_ROOT_INO; 
+                strcpy(current_path, "/"); 
+            }
+            else if (strcmp(arg1, "/") == 0 && strcmp(current_path, "/") == 0) {
+                // Já está na raiz, não faz nada
+                continue;
+            }
             else {
                 unsigned int ino = find_inode_by_path(arg1, current_inode);
                 if (ino) {
-                      ext2_inode new_dir_inode;
+                    ext2_inode new_dir_inode;
                     get_inode(ino, &new_dir_inode);
                     if (new_dir_inode.i_mode & EXT2_S_IFDIR) {
                         current_inode = ino;
                         update_path(arg1);
-                    } else printf("cd: '%s' não é um diretório\n", arg1);
-                } else printf("cd: '%s' não encontrado\n", arg1);
+                    } else {
+                        printf("cd: '%s' não é um diretório\n", arg1);
+                    }
+                } else {
+                    printf("cd: '%s' não encontrado\n", arg1);
+                }
             }
         }
+
         else if (strcmp(cmd, "touch") == 0) {
             if (!*arg1) printf("Uso: touch <nome_arquivo>\n");
             else do_touch(current_inode, arg1);

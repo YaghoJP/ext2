@@ -7,6 +7,8 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include "ext2_fs.h"
+#include <stdbool.h>
+
 
 // Variáveis globais
 extern FILE *disk_image;
@@ -240,5 +242,7 @@ observações:
   - Ignora ponteiros de bloco nulos com segurança.
 */
 void free_all_blocks(ext2_inode *inode);
+
+bool is_directory_empty(unsigned int dir_inode_num);
 
 #endif
