@@ -37,7 +37,7 @@ int main(int argc, char *argv[]) {
     char cmd[32], arg1[128], arg2[128];
 
     while (1) {
-        printf("ext2shell:[%s] $ ", current_path);
+        printf("[%s] $ ", current_path);
         fflush(stdout);
 
         if (fgets(line, sizeof(line), stdin) == NULL) break;
@@ -104,16 +104,16 @@ int main(int argc, char *argv[]) {
              else do_cp(current_inode, arg1, arg2);
         }
         else if (strcmp(cmd, "print") == 0) {
-        sscanf(line, "%*s %127s %127s", arg1, arg2);
+            sscanf(line, "%*s %127s %127s", arg1, arg2);
 
-        if (strcmp(arg1, "superblock") == 0) cmd_print_superblock();
-        else if (strcmp(arg1, "groups") == 0) cmd_print_groups();
-        else if (strcmp(arg1, "inode") == 0 && *arg2) {
-            uint32_t ino = atoi(arg2);
-            cmd_print_inode(ino);
-        } else {
-            printf("Uso: print [superblock | groups | inode <número>]\n");
-        }
+            if (strcmp(arg1, "superblock") == 0) cmd_print_superblock();
+            else if (strcmp(arg1, "groups") == 0) cmd_print_groups();
+            else if (strcmp(arg1, "inode") == 0 && *arg2) {
+                uint32_t ino = atoi(arg2);
+                cmd_print_inode(ino);
+            } else {
+                printf("Uso: print [superblock | groups | inode <número>]\n");
+            }
         }
         else if (strlen(cmd) > 0) {
             printf("Comando não encontrado: %s\n", cmd);

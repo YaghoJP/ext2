@@ -23,21 +23,45 @@ void do_attr(unsigned int inode_num) {
         printf("Erro: Não foi possível obter o inode %u.\n", inode_num);
         return;
     }
-    printf("--- Atributos do Inode ---\n");
-    printf("Inode: %u\n", inode_num);
-    printf("Tipo: ");
-    if (inode.i_mode & EXT2_S_IFDIR) printf("Diretório\n");
-    else if (inode.i_mode & EXT2_S_IFREG) printf("Arquivo Regular\n");
-    else printf("Outro\n");
-    printf("Tamanho: %u bytes\n", inode.i_size);
-    printf("Contagem de links: %u\n", inode.i_links_count);
-    printf("Blocos alocados: %u\n", inode.i_blocks / (block_size / 512));
-    time_t mtime = inode.i_ctime;
+
+    // Formatar permissões
+    char permissions[11];
+    permissions[0] = (inode.i_mode & EXT2_S_IFDIR) ? 'd' : '-';
+    permissions[1] = (inode.i_mode & 0400) ? 'r' : '-';
+    permissions[2] = (inode.i_mode & 0200) ? 'w' : '-';
+    permissions[3] = (inode.i_mode & 0100) ? 'x' : '-';
+    permissions[4] = (inode.i_mode & 0040) ? 'r' : '-';
+    permissions[5] = (inode.i_mode & 0020) ? 'w' : '-';
+    permissions[6] = (inode.i_mode & 0010) ? 'x' : '-';
+    permissions[7] = (inode.i_mode & 0004) ? 'r' : '-';
+    permissions[8] = (inode.i_mode & 0002) ? 'w' : '-';
+    permissions[9] = (inode.i_mode & 0001) ? 'x' : '-';
+    permissions[10] = '\0';
+
+    // Formatar tamanho humano legível
+    char size_str[32];
+    if (inode.i_size < 1024) {
+        snprintf(size_str, sizeof(size_str), "%u bytes", inode.i_size);
+    } else if (inode.i_size < 1024 * 1024) {
+        snprintf(size_str, sizeof(size_str), "%.1f KiB", inode.i_size / 1024.0);
+    } else {
+        snprintf(size_str, sizeof(size_str), "%.1f MiB", inode.i_size / (1024.0 * 1024.0));
+    }
+
+    // Formatar data
+    time_t mtime = inode.i_mtime;
     struct tm *tm_info = localtime(&mtime);
     char date_buf[64];
     strftime(date_buf, sizeof(date_buf), "%d/%m/%Y %H:%M", tm_info);
-    printf("%s\n", date_buf);
-    printf("Data de criação: %s", date_buf);
+
+    // Saída formatada com alinhamento correto
+    printf("permissões\tuid\tgid\ttamanho\t\tmodificado em\n");
+    printf("%s\t\t%u\t%u\t%s\t%s\n", 
+           permissions, 
+           inode.i_uid, 
+           inode.i_gid, 
+           size_str,
+           date_buf);
 }
 
 void do_ls(unsigned int dir_inode_num) {
@@ -71,25 +95,59 @@ void do_ls(unsigned int dir_inode_num) {
 }
 
 void do_cat(unsigned int file_inode_num) {
-      ext2_inode file_inode;
-    get_inode(file_inode_num, &file_inode);
-    if (!(file_inode.i_mode & EXT2_S_IFREG)) {
-        printf("cat: não é um arquivo regular\n");
+    ext2_inode file_inode;
+    if (get_inode(file_inode_num, &file_inode) != 0) {
+        printf("Erro: Não foi possível ler o inode %u\n", file_inode_num);
         return;
     }
+
+    if (!(file_inode.i_mode & EXT2_S_IFREG)) {
+        printf("cat: %u não é um arquivo regular\n", file_inode_num);
+        return;
+    }
+
     char *block_buf = malloc(block_size);
+    if (!block_buf) {
+        printf("Erro: Falha ao alocar memória\n");
+        return;
+    }
+
     unsigned int bytes_remaining = file_inode.i_size;
+    
+    // 1. Ler blocos diretos (0-11)
     for (int i = 0; i < 12 && file_inode.i_block[i] != 0 && bytes_remaining > 0; i++) {
         read_block(file_inode.i_block[i], block_buf);
         unsigned int bytes_to_write = (bytes_remaining > block_size) ? block_size : bytes_remaining;
         fwrite(block_buf, 1, bytes_to_write, stdout);
         bytes_remaining -= bytes_to_write;
     }
-    free(block_buf);
-    printf("\n");
-}
 
-// --- Comandos de Escrita ---
+    // 2. Ler bloco indireto simples (12)
+    if (bytes_remaining > 0 && file_inode.i_block[12] != 0) {
+        uint32_t *indirect_block = malloc(block_size);
+        if (!indirect_block) {
+            free(block_buf);
+            printf("Erro: Falha ao alocar memória para bloco indireto\n");
+            return;
+        }
+
+        read_block(file_inode.i_block[12], (char *)indirect_block);
+        
+        int entries_per_block = block_size / sizeof(uint32_t);
+        for (int i = 0; i < entries_per_block && indirect_block[i] != 0 && bytes_remaining > 0; i++) {
+            read_block(indirect_block[i], block_buf);
+            unsigned int bytes_to_write = (bytes_remaining > block_size) ? block_size : bytes_remaining;
+            fwrite(block_buf, 1, bytes_to_write, stdout);
+            bytes_remaining -= bytes_to_write;
+        }
+        
+        free(indirect_block);
+    }
+
+
+    free(block_buf);
+    printf("\n"); // Adiciona nova linha no final
+}
 
 void do_touch(unsigned int parent_inode_num, const char* filename) {
     if (find_inode_by_path(filename, parent_inode_num) != 0) {
