@@ -6,7 +6,7 @@ void do_info() {
 
     printf("\nVolume name.....: %s\n", sb.s_volume_name);
     printf("Image size......: %lu bytes\n", block_size * sb.s_blocks_count * 1UL);
-    printf("Free space......: %u KiB\n", ((sb.s_free_blocks_count - sb.s_blocks_count) * block_size) / 1024);
+    printf("Free space......: %u KiB\n", (sb.s_free_blocks_count * block_size) / 1024);
     printf("Free inodes.....: %u\n", sb.s_free_inodes_count);
     printf("Free blocks.....: %u\n", sb.s_free_blocks_count);
     printf("Block size......: %u bytes\n", block_size);
